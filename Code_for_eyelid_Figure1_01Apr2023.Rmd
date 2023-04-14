@@ -1,0 +1,272 @@
+# Code for Eyelid Figure 1
+
+## Load libraries and data
+```{r}
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+library(patchwork)
+library(DoubletFinder)
+```
+
+## Intial quality control
+
+### Load three datasets
+```{r}
+mg1.data <- Read10X(data.dir = "Data/cellranger_output/run_count_MG1_S10/outs/filtered_feature_bc_matrix")
+mg2.data <- Read10X(data.dir = "Data/cellranger_output/run_count_MG2_S11/outs/filtered_feature_bc_matrix")
+mg.wt.data <- Read10X(data.dir = "/Users/juliewiedemann/Google Drive/Julie/Cornea_scRNA-seq/Data/cellranger_output/WT_MG/filtered_feature_bc_matrix")
+```
+### Create Seurat objects
+```{r}
+# Initialize the Seurat object with the raw (non-normalized data).
+mg1 <- CreateSeuratObject(counts = mg1.data, project = "mg1", min.cells = 6)
+#16983 features across 4755 samples within 1 assay
+mg2 <- CreateSeuratObject(counts = mg2.data, project = "mg2", min.cells = 6)
+#17057 features across 3428 samples within 1 assay
+mg.wt <- CreateSeuratObject(counts = mg.wt.data, project = "mg_wt", min.cells = 6)
+
+```
+
+### Assign percent mito
+```{r}
+mg1[["percent.mt"]] <- PercentageFeatureSet(mg1, pattern = "^mt-")
+mg2[["percent.mt"]] <- PercentageFeatureSet(mg2, pattern = "^mt-")
+mg.wt[["percent.mt"]] <- PercentageFeatureSet(mg.wt, pattern = "^mt-")
+```
+
+### QC violin plot
+```{r}
+pdf("Plots/MG1_QC_plot.pdf")
+VlnPlot(mg1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), pt.size = 0, ncol = 3)
+dev.off()
+
+pdf("Plots/MG2_QC_plot.pdf")
+VlnPlot(mg2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), pt.size = 0, ncol = 3)
+dev.off()
+
+pdf("Plots/MG_WT_QC_plot.pdf")
+VlnPlot(mg.wt, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), pt.size = 0, ncol = 3)
+dev.off()
+```
+
+### SuppFig1- QC violin plot after cutoffs were applied
+```{r}
+mg1 <- subset(mg1, subset = nFeature_RNA > 200 & nFeature_RNA < 6000 & percent.mt < 5)
+#An object of class Seurat
+#16983 features across 4267 samples within 1 assay
+#Active assay: RNA (16983 features, 0 variable features)
+mg2 <- subset(mg2, subset = nFeature_RNA > 200 & nFeature_RNA < 6000 & percent.mt < 5)
+#An object of class Seurat
+#17057 features across 2992 samples within 1 assay
+#Active assay: RNA (17057 features, 0 variable features)
+mg.wt <- subset(mg.wt, subset = nFeature_RNA > 200 & nFeature_RNA < 6000 & percent.mt < 5)
+
+pdf("Plots/MG1_after_QC_plot.pdf")
+VlnPlot(mg1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), pt.size = 0, ncol = 3)
+dev.off()
+
+pdf("Plots/MG2_after_QC_plot.pdf")
+VlnPlot(mg2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), pt.size = 0, ncol = 3)
+dev.off()
+
+pdf("Plots/MG_WT_after_QC_plot.pdf")
+VlnPlot(mg.wt, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), pt.size = 0, ncol = 3)
+dev.off()
+```
+
+## Integrate three eyelid datasets
+
+### Assign dataset labels
+```{r}
+mg1$id <- "MG1"
+mg2$id <- "MG2"
+mg.wt$id <- "MG3"
+```
+
+### Integrate three datasets into one object
+```{r}
+features <- SelectIntegrationFeatures(object.list = list(mg1, mg2, mg.wt))
+anchors <- FindIntegrationAnchors(object.list = list(mg1, mg2, mg.wt), anchor.features = features)
+mg.combined <- IntegrateData(anchorset = anchors)
+```
+
+### Run standard Seurat pipeline on integrated object
+```{r}
+DefaultAssay(mg.combined) <- "integrated"
+# Run the standard workflow for visualization and clustering
+mg.combined <- ScaleData(mg.combined, verbose = FALSE)
+mg.combined <- RunPCA(mg.combined, verbose = FALSE)
+mg.combined <- RunTSNE(mg.combined, reduction = "pca", dims = 1:20)
+mg.combined <- RunUMAP(mg.combined, reduction = "pca", dims = 1:20)
+mg.combined <- FindNeighbors(mg.combined, reduction = "pca", dims = 1:20)
+mg.combined <- FindClusters(mg.combined, resolution = c(0.1, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6, 0.7))
+```
+
+## Assign cell type names
+```{r}
+Idents(mg.combined) <-'wt_integrated_annotation'
+new.cluster.ids <- c('Fibroblast I', 'CJ progenitor', 'Ductal progenitor', 'HF I', 'Meibocyte progenitor', 'Suprabasal CJ epithelia', 'IRS', 'HF III (prolif)', 'Fibroblast II', 'DP', 'Cortex/cuticle', 'T cells/lymphoid', 'Macrophages/DC', 'CJ progenitor (prolif)', 'HF II', 'Meibocyte/Ductal progenitor(prolif)', 'Pericytes', 'Diff meibocyte', 'Endothelial cells', 'DS', 'Diff ductal epithelia', 'Melanocytes')
+
+names(new.cluster.ids) <- levels(mg.combined)
+mg.combined <- RenameIdents(mg.combined, new.cluster.ids)
+mg.combined$final_annotation <- Idents(mg.combined)
+
+my_levels <-  c('Fibroblast I', 'Fibroblast II',  'DS', 'DP', 'HF I', 'HF II', 'HF III (prolif)', 'IRS', 'Cortex/cuticle', 'CJ progenitor (prolif)', 'CJ progenitor', 'Suprabasal CJ epithelia', 'Meibocyte/Ductal progenitor(prolif)', 'Meibocyte progenitor', 'Diff meibocyte', 'Ductal progenitor', 'Diff ductal epithelia', 'T cells/lymphoid', 'Macrophages/DC', 'Pericytes', 'Endothelial cells', 'Melanocytes')
+mg.combined.s$final_annotation <- factor(x = mg.combined.s$final_annotation, levels = my_levels)
+Idents(mg.combined.s) <- "final_annotation"
+```
+
+## Perform doublet removal on each dataset
+
+### Split object by sample
+
+```{r}
+DefaultAssay(mg.combined) <- 'RNA'
+mg_sample <- SplitObject(mg.combined, split.by = 'id')
+```
+
+### MG 1
+```{r}
+mg_sample[["MG1"]] <- mg_sample[["MG1"]] %>% NormalizeData() %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA()
+
+sweep.res.list_mg1 <- paramSweep_v3(mg_sample$MG1, PCs = 1:20, sct = FALSE)
+sweep.stats_mg1 <- summarizeSweep(sweep.res.list_mg1, GT = FALSE)
+bcmvn_mg1 <- find.pK(sweep.stats_mg1)
+
+## Homotypic Doublet Proportion Estimate -------------------------------------------------------------------------------------
+homotypic.prop_mg1 <- modelHomotypic(mg_sample$MG1$final_annotation)           ## ex: annotations <- seu_kidney@meta.data$ClusteringResults
+nExp_poi_mg1 <- round(0.05*nrow(mg_sample$MG1@meta.data))  ## Assuming 7.5% doublet formation rate - tailor for your dataset
+nExp_poi.adj_mg1 <- round(nExp_poi_mg1*(1-homotypic.prop_mg1))
+
+## Run DoubletFinder with varying classification stringencies ----------------------------------------------------------------
+mg_sample[["MG1"]] <- doubletFinder_v3(mg_sample[["MG1"]], PCs = 1:20, pN = 0.25, pK = 0.005, nExp = nExp_poi_mg1, reuse.pANN = FALSE, sct = FALSE)
+mg_sample[["MG1"]] <- doubletFinder_v3(mg_sample[["MG1"]], PCs = 1:20, pN = 0.25, pK = 0.005, nExp = nExp_poi.adj_mg1, reuse.pANN = "pANN_0.25_0.005_213", sct = FALSE)
+```
+### MG2
+```{r}
+mg_sample[["MG2"]] <- mg_sample[["MG2"]] %>% NormalizeData() %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA()
+
+sweep.res.list_mg2 <- paramSweep_v3(mg_sample$MG2, PCs = 1:20, sct = FALSE)
+sweep.stats_mg2 <- summarizeSweep(sweep.res.list_mg2, GT = FALSE)
+bcmvn_mg2 <- find.pK(sweep.stats_mg2)
+
+## Homotypic Doublet Proportion Estimate -------------------------------------------------------------------------------------
+homotypic.prop_mg2 <- modelHomotypic(mg_sample$MG2$final_annotation)           ## ex: annotations <- seu_kidney@meta.data$ClusteringResults
+nExp_poi_mg2 <- round(0.05*nrow(mg_sample$MG2@meta.data))  ## Assuming 7.5% doublet formation rate - tailor for your dataset
+nExp_poi.adj_mg2 <- round(nExp_poi_mg2*(1-homotypic.prop_mg2))
+
+## Run DoubletFinder with varying classification stringencies ----------------------------------------------------------------
+mg_sample[["MG2"]] <- doubletFinder_v3(mg_sample[["MG2"]], PCs = 1:20, pN = 0.25, pK = 0.01, nExp = nExp_poi_mg2, reuse.pANN = FALSE, sct = FALSE)
+mg_sample[["MG2"]] <- doubletFinder_v3(mg_sample[["MG2"]], PCs = 1:20, pN = 0.25, pK = 0.01, nExp = nExp_poi.adj_mg2, reuse.pANN = "pANN_0.25_0.08_150", sct = FALSE)
+```
+### MG3
+```{r}
+mg_sample[["MG3"]] <- mg_sample[["MG3"]] %>% NormalizeData() %>% FindVariableFeatures() %>% ScaleData() %>% RunPCA()
+
+sweep.res.list_mg3 <- paramSweep_v3(mg_sample$MG3, PCs = 1:20, sct = FALSE)
+sweep.stats_mg3 <- summarizeSweep(sweep.res.list_mg3, GT = FALSE)
+bcmvn_mg3 <- find.pK(sweep.stats_mg3)
+
+## Homotypic Doublet Proportion Estimate -------------------------------------------------------------------------------------
+homotypic.prop_mg3 <- modelHomotypic(mg_sample$MG3$final_annotation)           ## ex: annotations <- seu_kidney@meta.data$ClusteringResults
+nExp_poi_mg3 <- round(0.05*nrow(mg_sample$MG3@meta.data))  ## Assuming 7.5% doublet formation rate - tailor for your dataset
+nExp_poi.adj_mg3 <- round(nExp_poi_mg3*(1-homotypic.prop_mg3))
+
+## Run DoubletFinder with varying classification stringencies ----------------------------------------------------------------
+mg_sample[["MG3"]] <- doubletFinder_v3(mg_sample[["MG3"]], PCs = 1:20, pN = 0.25, pK = 0.005, nExp = nExp_poi_mg3, reuse.pANN = FALSE, sct = FALSE)
+mg_sample[["MG3"]] <- doubletFinder_v3(mg_sample[["MG3"]], PCs = 1:20, pN = 0.25, pK = 0.005, nExp = nExp_poi.adj_mg3, reuse.pANN = "pANN_0.25_0.005_524", sct = FALSE)
+```
+
+
+## Remove doublets from dataset and finalize annotation
+```{r}
+singlet <- c(colnames(subset(mg_sample$MG1, idents = "Singlet")), colnames(subset(mg_sample$MG2, idents = "Singlet")),colnames(subset(mg_sample$MG3, idents = "Singlet")))
+
+mg.combined.s <- subset(mg.combined, cells = singlet)
+```
+
+## Fig1A- UMAP with updated names
+Color palette for cell types
+```{r}
+pal <- c("#FF474E", "#F67513", "#F9AF39", "#F8EB77",
+"#DFE58A", "#BAE576", "#A1DB43", "#73C658", "#55A739",
+"#C0EBEC", "#61CDD1", "#32AAAE",
+"#A1DAF7", "#54BEF2", "#1090D1", "#BCA3F5", "#936CEF",
+"#E19BE9", "#DE3FBC",
+"#FFADCD", "#FF85B4", "#FF478E"
+)
+```
+
+Plot UMAP with cell type annotation
+```{r}
+pdf("Plots/MG_integrated/singlet/UMAP_MG_all_clusters_annotated.pdf", height = 8, width = 8)
+DimPlot(mg.combined.s, cols = pal, label = TRUE)+NoLegend()
+dev.off()
+```
+
+## Fig1B- Cell type marker violin plot
+Color palette for violin plot
+```{r}
+pal2 <- c("#FF474E", "#F9AF39", "#F8EB77",
+"#DFE58A", "#A1DB43", "#73C658", "#55A739",
+"#C0EBEC", "#32AAAE",
+"#54BEF2", "#936CEF",
+"#E19BE9", "#DE3FBC",
+"#FFADCD", "#FF85B4", "#FF478E"
+)
+```
+
+Cell type marker violin plot
+```{r}
+pdf("Plots/MG_integrated/singlet/StackedVlnPlot_MG_integrated_markers_singlet.pdf", height =12, width =9)
+VlnPlot(mg.combined.s, features = c("Col1a1", "Acta2", "Corin", "Lhx2",  "Mki67", "Krt73", "Krt35", "Cldn4", "Krt13", "Ly6d", "Plin2", "Cd3d", "C1qa", "Rgs5", "Cdh5",  "Mlana"), same.y.lims =TRUE, stack=TRUE, flip =TRUE, cols = pal2)+NoLegend()+xlab("")
+dev.off()
+```
+
+## Fig1C- Cell cycle scoring
+
+```{r}
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+mg.combined.s <- CellCycleScoring(mg.combined.s, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+pdf("/Plots/MG_integrated/singlet/UMAP_MG_integrated_CellCycleScoring_singlet.pdf")
+DimPlot(mg.combined)+NoLegend()
+dev.off()
+mg.combined.s$cellcycle <- Idents(mg.combined.s)
+```
+
+### Dataframe with cell cycle scoring proportion by cell type
+
+```{r}
+cc <- melt(table(mg.combined.s$final_annotation, mg.combined.s$cellcycle))
+
+t <- as.numeric(table(mg.combined.s$final_annotation))
+
+cc$proportion <- ifelse(cc$Var.1 == levels[18], cc$value/t[18], ifelse(cc$Var.1 == levels[19], cc$value/t[19],
+  ifelse(cc$Var.1 == levels[20], cc$value/t[20],  ifelse(cc$Var.1 == levels[21], cc$value/t[21],
+  ifelse(cc$Var.1 == levels[1], cc$value/t[1], ifelse(cc$Var.1 == levels[2], cc$value/t[2],ifelse(cc$Var.1 == levels[3], cc$value/t[3],
+  ifelse(cc$Var.1 == levels[4], cc$value/t[4], ifelse(cc$Var.1 == levels[5], cc$value/t[5], ifelse(cc$Var.1 == levels[6], cc$value/t[6],
+  ifelse(cc$Var.1 == levels[7], cc$value/t[7], ifelse(cc$Var.1 == levels[8], cc$value/t[8], ifelse(cc$Var.1 == levels[9], cc$value/t[9],
+  ifelse(cc$Var.1 == levels[10], cc$value/t[10], ifelse(cc$Var.1 == levels[11], cc$value/t[11], ifelse(cc$Var.1 == levels[12], cc$value/t[12],
+  ifelse(cc$Var.1 == levels[13], cc$value/t[13], ifelse(cc$Var.1 == levels[14], cc$value/t[14], ifelse(cc$Var.1 == levels[15], cc$value/t[15], ifelse(cc$Var.1 == levels[16], cc$value/t[16], ifelse(cc$Var.1 == levels[17], cc$value/t[17], cc$value/t[22])))))))))))))))))
+```
+
+### Bar chart to show changes in cell cycle proportions by cell type
+
+```{r}
+pdf("Plots/MG_integrated/Barplot_proportion_MG_integrated_CellCycleScoring.pdf", height = 4, width = 15)
+cc$Var.1 <- as.factor(cc$Var.1)
+cc$Var.1 <- factor(x = cc$Var.1, levels = levels)
+
+ggplot(cc, aes(x= Var.1, y=proportion, fill =Var.2))+
+geom_bar(width = .75, stat = "identity") +
+  xlab('Cluster') + ylab('Proportion of cells') + labs(fill='')+ theme_bw()
+dev.off()
+```
+
+```{r}
+save(mg.combined.s, file = "Data/MG_Integrated_dataset.RData")
+```
