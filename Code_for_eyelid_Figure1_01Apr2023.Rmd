@@ -105,6 +105,13 @@ mg.combined <- FindClusters(mg.combined, resolution = c(0.1, 0.2, 0.25, 0.3, 0.3
 
 ## Assign cell type names
 ```{r}
+Idents(mg.wt.combined) <- "integrated_snn_res.0.4"
+
+new.cluster.ids <- c("Fibroblast 0", "Basal\nconjunctiva 1", "Ductal\n epithelia 2", "HF 3", "Undiff\nmeibocyte 4", " Suprabasal\nconjunctiva 5", "Prolif? HF 6", "Prolif HF 7", "Fibroblast 8", "? 9", "HF? 10", "T cells\n11", "Immune 12", "Conjunctiva\nprogenitor 13", "HF 14", "Meibocyte/Ductal\nprogenitor 15", "Muscle 16", "Diff\nmeibocyte 17", "Endothelial cells 18", "Fibroblast 19", "Ductal\n epithelia 20", "Melanocyte 21")
+names(new.cluster.ids) <- levels(mg.wt.combined)
+mg.wt.combined <- RenameIdents(mg.wt.combined, new.cluster.ids)
+mg.wt.combined$wt_integrated_annotation <-Idents(mg.wt.combined)
+
 Idents(mg.combined) <-'wt_integrated_annotation'
 new.cluster.ids <- c('Fibroblast I', 'CJ progenitor', 'Ductal progenitor', 'HF I', 'Meibocyte progenitor', 'Suprabasal CJ epithelia', 'IRS', 'HF III (prolif)', 'Fibroblast II', 'DP', 'Cortex/cuticle', 'T cells/lymphoid', 'Macrophages/DC', 'CJ progenitor (prolif)', 'HF II', 'Meibocyte/Ductal progenitor(prolif)', 'Pericytes', 'Diff meibocyte', 'Endothelial cells', 'DS', 'Diff ductal epithelia', 'Melanocytes')
 
